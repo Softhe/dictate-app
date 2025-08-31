@@ -81,7 +81,7 @@
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
   --transition-fast: 0.2s ease;
   --transition-normal: 0.3s ease;
-  --transition-slow: 0.45s ease;
+  --transition-slow: 0.45s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-tabs: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
   --font-primary: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
@@ -154,6 +154,142 @@ body {
   overflow: hidden; /* Ensure app container doesn't scroll */
 }
 
+.notes-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 280px;
+  background-color: var(--color-bg-alt);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  transform: translateX(-100%);
+  transition: transform var(--transition-slow);
+  z-index: 1100;
+  box-shadow: var(--shadow-lg);
+}
+
+body.sidebar-open .notes-sidebar {
+  transform: translateX(0);
+}
+
+.sidebar-header {
+  padding: 32px 20px 16px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.sidebar-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.notes-list-container {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.empty-notes-message {
+  padding: 20px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+}
+
+.note-item {
+  padding: 12px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 4px;
+  transition: background-color var(--transition-fast);
+  position: relative;
+  overflow: hidden;
+}
+
+.note-item:hover {
+  background-color: var(--color-surface);
+}
+
+.note-item.active {
+  background-color: var(--color-accent);
+}
+.note-item.active .note-item-title {
+  color: white;
+}
+.note-item.active .note-item-timestamp {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+body.light-mode .note-item.active {
+    color: white;
+}
+body.light-mode .note-item.active .note-item-title {
+    color: #1d1d1f;
+}
+body.light-mode .note-item.active .note-item-timestamp {
+    color: rgba(0, 0, 0, 0.6);
+}
+
+.note-item-title {
+  font-weight: 500;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+  padding-right: 28px;
+}
+
+.note-item-timestamp {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.delete-note-button {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--color-text-tertiary);
+  font-size: 14px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast), color var(--transition-fast);
+}
+
+.note-item:hover .delete-note-button {
+  opacity: 1;
+}
+
+.delete-note-button:hover {
+  color: var(--color-recording);
+}
+
+.note-item.active .delete-note-button {
+  color: rgba(255, 255, 255, 0.7);
+  opacity: 1;
+}
+
+.note-item.active .delete-note-button:hover {
+  color: white;
+}
+
+body.light-mode .note-item.active .delete-note-button {
+  color: rgba(0, 0, 0, 0.6);
+}
+body.light-mode .note-item.active .delete-note-button:hover {
+  color: #1d1d1f;
+}
+
+
 .main-content {
   flex: 1;
   display: flex;
@@ -189,6 +325,18 @@ body {
   transition: border-color var(--transition-normal);
 }
 
+.header-main {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-grow: 1;
+    min-width: 0; /* Prevent flex item from overflowing */
+}
+
+.sidebar-toggle-button {
+    flex-shrink: 0;
+}
+
 .editor-title {
   font-size: 22px;
   font-weight: 600;
@@ -197,10 +345,12 @@ body {
   padding: 0;
   margin: 0;
   flex-grow: 1;
-  margin-right: 24px;
   color: var(--color-text);
   font-family: var(--font-primary);
   background-color: transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tab-navigation-container {
@@ -439,7 +589,7 @@ body.light-mode .active-tab-indicator {
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
 }
 /* Action buttons are hidden when recording is live and panel is an overlay */
-.recording-interface.is-live .action-button { display: none; }
+.recording-interface.is-live .action-button:not(.sidebar-toggle-button) { display: none; }
 .action-button:hover { color: var(--color-text); transform: translateY(-2px) scale(1.05); box-shadow: var(--shadow-md); background-color: var(--color-surface-hover); border-color: var(--glass-highlight); }
 
 .record-button { position: relative; width: 72px; height: 72px; border-radius: 50%; border: none; outline: none; background: none; cursor: pointer; z-index: 1; }
@@ -491,6 +641,7 @@ body.light-mode .record-button.recording .record-button-inner { color: white; }
 @media (max-width: 768px) {
   .note-area { padding: 20px 0 0; }
   .note-header { padding: 0 20px 12px; flex-direction: column; align-items: stretch; gap: 12px; }
+  .header-main { gap: 12px; }
   .editor-title { padding: 0; font-size: 20px; margin-bottom: 0; margin-right: 0; text-align: left; }
   .tab-navigation-container { width: 100%; }
   .tab-navigation { width: 100%; }

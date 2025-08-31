@@ -22,11 +22,25 @@
   </head>
   <body>
     <div class="app-container">
+      <div class="notes-sidebar" id="notesSidebar">
+        <div class="sidebar-header">
+          <h2>My Notes</h2>
+        </div>
+        <div class="notes-list-container" id="notesList">
+          <!-- Notes will be dynamically inserted here -->
+        </div>
+      </div>
+
       <div class="main-content">
         <div class="note-area">
           <div class="note-header">
-            <div class="editor-title" contenteditable="true" placeholder="Untitled Note">
-              Untitled Note
+            <div class="header-main">
+              <button class="action-button sidebar-toggle-button" id="sidebarToggleButton" title="Toggle Notes List">
+                <i class="fas fa-bars"></i>
+              </button>
+              <div class="editor-title" contenteditable="true" placeholder="Untitled Note">
+                Untitled Note
+              </div>
             </div>
             <div class="tab-navigation-container">
               <div class="tab-navigation">

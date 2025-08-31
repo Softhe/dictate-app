@@ -11,6 +11,7 @@ const MODEL_NAME = 'gemini-2.5-flash';
 
 interface Note {
   id: string;
+  title: string;
   rawTranscription: string;
   polishedNote: string;
   timestamp: number;
@@ -32,7 +33,6 @@ class VoiceNotesApp {
   private currentNote: Note | null = null;
   private stream: MediaStream | null = null;
   private editorTitle: HTMLDivElement;
-  private hasAttemptedPermission = false;
 
   private recordingInterface: HTMLDivElement;
   private liveRecordingTitle: HTMLDivElement;
@@ -47,6 +47,13 @@ class VoiceNotesApp {
   private waveformDrawingId: number | null = null;
   private timerIntervalId: number | null = null;
   private recordingStartTime: number = 0;
+
+  // Note persistence properties
+  private notes: Note[] = [];
+  private sidebar: HTMLElement;
+  private notesList: HTMLElement;
+  private sidebarToggleButton: HTMLButtonElement;
+  private readonly LOCAL_STORAGE_KEY = 'voice-notes-app-data';
 
   constructor() {
     this.genAI = new GoogleGenAI({apiKey: process.env.API_KEY!});
@@ -76,6 +83,11 @@ class VoiceNotesApp {
     this.editorTitle = document.querySelector(
       '.editor-title',
     ) as HTMLDivElement;
+    this.sidebar = document.getElementById('notesSidebar') as HTMLElement;
+    this.notesList = document.getElementById('notesList') as HTMLElement;
+    this.sidebarToggleButton = document.getElementById(
+      'sidebarToggleButton',
+    ) as HTMLButtonElement;
 
     this.recordingInterface = document.querySelector(
       '.recording-interface',
@@ -109,7 +121,7 @@ class VoiceNotesApp {
 
     this.bindEventListeners();
     this.initTheme();
-    this.createNewNote();
+    this.loadNotes();
 
     this.recordingStatus.textContent = 'Ready to record';
   }
@@ -120,6 +132,177 @@ class VoiceNotesApp {
     this.themeToggleButton.addEventListener('click', () => this.toggleTheme());
     this.exportButton.addEventListener('click', () => this.exportNote());
     window.addEventListener('resize', this.handleResize.bind(this));
+    this.sidebarToggleButton.addEventListener('click', () =>
+      this.toggleSidebar(),
+    );
+    this.notesList.addEventListener('click', (e) =>
+      this.handleNoteListClick(e),
+    );
+    this.editorTitle.addEventListener('blur', () => this.handleTitleChange());
+  }
+
+  private handleTitleChange(): void {
+    if (!this.currentNote) return;
+    const newTitle = this.editorTitle.textContent?.trim() || 'Untitled Note';
+    if (this.currentNote.title !== newTitle) {
+      this.currentNote.title = newTitle;
+      const noteInArray = this.notes.find((n) => n.id === this.currentNote!.id);
+      if (noteInArray) {
+        noteInArray.title = newTitle;
+      }
+      this.saveNotes();
+    }
+  }
+
+  private toggleSidebar(): void {
+    document.body.classList.toggle('sidebar-open');
+  }
+
+  // FIX: Make method async to handle async calls to deleteNote and loadNote
+  private async handleNoteListClick(event: MouseEvent): Promise<void> {
+    const target = event.target as HTMLElement;
+    const noteItem = target.closest('.note-item');
+    if (!noteItem) return;
+
+    const noteId = noteItem.getAttribute('data-note-id');
+    if (!noteId) return;
+
+    const deleteButton = target.closest('.delete-note-button');
+    if (deleteButton) {
+      // FIX: await async method
+      await this.deleteNote(noteId);
+    } else {
+      // FIX: await async method
+      await this.loadNote(noteId);
+    }
+  }
+
+  private saveNotes(): void {
+    // Sort notes by timestamp, most recent first
+    this.notes.sort((a, b) => b.timestamp - a.timestamp);
+    localStorage.setItem(this.LOCAL_STORAGE_KEY, JSON.stringify(this.notes));
+    this.renderSidebar();
+  }
+
+  // FIX: Make method async to handle async call to loadNote
+  private async loadNotes(): Promise<void> {
+    const savedNotes = localStorage.getItem(this.LOCAL_STORAGE_KEY);
+    if (savedNotes) {
+      try {
+        this.notes = JSON.parse(savedNotes);
+      } catch (e) {
+        console.error('Could not parse notes from local storage', e);
+        this.notes = [];
+      }
+    }
+
+    if (this.notes.length > 0) {
+      // Load the most recent note
+      // FIX: await async method
+      await this.loadNote(this.notes[0].id);
+    } else {
+      // Or create a new one if storage is empty
+      this.createNewNote();
+    }
+    this.renderSidebar();
+  }
+
+  private renderSidebar(): void {
+    this.notesList.innerHTML = '';
+    if (this.notes.length === 0) {
+      this.notesList.innerHTML =
+        '<p class="empty-notes-message">No saved notes.</p>';
+      return;
+    }
+
+    this.notes.forEach((note) => {
+      const noteEl = document.createElement('div');
+      noteEl.className = 'note-item';
+      noteEl.setAttribute('data-note-id', note.id);
+
+      if (this.currentNote && note.id === this.currentNote.id) {
+        noteEl.classList.add('active');
+      }
+
+      const title = note.title || 'Untitled Note';
+      const date = new Date(note.timestamp).toLocaleString(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+
+      noteEl.innerHTML = `
+            <div class="note-item-title">${title}</div>
+            <div class="note-item-timestamp">${date}</div>
+            <button class="delete-note-button" title="Delete Note"><i class="fas fa-trash"></i></button>
+        `;
+      this.notesList.appendChild(noteEl);
+    });
+  }
+
+  // FIX: Make method async to handle async calls within it.
+  private async loadNote(noteId: string): Promise<void> {
+    const noteToLoad = this.notes.find((note) => note.id === noteId);
+    if (!noteToLoad) {
+      console.error(`Note with id ${noteId} not found.`);
+      if (this.notes.length === 0) {
+        this.createNewNote();
+      } else {
+        // FIX: await async method
+        await this.loadNote(this.notes[0].id);
+      }
+      return;
+    }
+    this.currentNote = {...noteToLoad};
+
+    // Update UI
+    this.editorTitle.textContent = this.currentNote.title;
+    this.editorTitle.classList.toggle(
+      'placeholder-active',
+      !this.currentNote.title || this.currentNote.title === 'Untitled Note',
+    );
+
+    if (this.currentNote.rawTranscription) {
+      this.rawTranscription.textContent = this.currentNote.rawTranscription;
+      this.rawTranscription.classList.remove('placeholder-active');
+    } else {
+      this.rawTranscription.textContent =
+        this.rawTranscription.getAttribute('placeholder');
+      this.rawTranscription.classList.add('placeholder-active');
+    }
+
+    if (this.currentNote.polishedNote) {
+      // FIX: Await marked.parse as it can be async and return a Promise.
+      this.polishedNote.innerHTML = await marked.parse(this.currentNote.polishedNote);
+      this.polishedNote.classList.remove('placeholder-active');
+    } else {
+      this.polishedNote.innerHTML =
+        this.polishedNote.getAttribute('placeholder') || '';
+      this.polishedNote.classList.add('placeholder-active');
+    }
+
+    if (this.isRecording) {
+      // FIX: await async method
+      await this.stopRecording();
+    }
+
+    this.recordingStatus.textContent = 'Note loaded. Ready to record.';
+    this.renderSidebar(); // Re-render to update active state
+  }
+
+  // FIX: Make method async to handle async call to loadNote
+  private async deleteNote(noteId: string): Promise<void> {
+    this.notes = this.notes.filter((note) => note.id !== noteId);
+    this.saveNotes(); // this will also re-render the sidebar
+
+    if (this.currentNote && this.currentNote.id === noteId) {
+      // If the active note was deleted, load another or create a new one
+      if (this.notes.length > 0) {
+        // FIX: await async method
+        await this.loadNote(this.notes[0].id);
+      } else {
+        this.createNewNote();
+      }
+    }
   }
 
   private handleResize(): void {
@@ -574,7 +757,6 @@ class VoiceNotesApp {
         contents: contents,
       });
 
-      // FIX: Per @google/genai guidelines, the `response.text` property is a string.
       const transcriptionText = response.text;
 
       if (transcriptionText) {
@@ -588,8 +770,16 @@ class VoiceNotesApp {
           this.rawTranscription.classList.add('placeholder-active');
         }
 
-        if (this.currentNote)
+        if (this.currentNote) {
           this.currentNote.rawTranscription = transcriptionText;
+          const noteInArray = this.notes.find(
+            (n) => n.id === this.currentNote!.id,
+          );
+          if (noteInArray) {
+            noteInArray.rawTranscription = transcriptionText;
+            this.saveNotes();
+          }
+        }
         this.recordingStatus.textContent =
           'Transcription complete. Polishing note...';
         this.getPolishedNote().catch((err) => {
@@ -651,11 +841,11 @@ class VoiceNotesApp {
         contents: contents,
       });
 
-      // FIX: Per @google/genai guidelines, the `response.text` property is a string.
       const polishedText = response.text;
 
       if (polishedText) {
-        const htmlContent = marked.parse(polishedText);
+        // FIX: Await marked.parse as it can be async and return a Promise.
+        const htmlContent = await marked.parse(polishedText);
         this.polishedNote.innerHTML = htmlContent;
         if (polishedText.trim() !== '') {
           this.polishedNote.classList.remove('placeholder-active');
@@ -675,6 +865,9 @@ class VoiceNotesApp {
             if (this.editorTitle && title) {
               this.editorTitle.textContent = title;
               this.editorTitle.classList.remove('placeholder-active');
+              if (this.currentNote) {
+                this.currentNote.title = title;
+              }
               noteTitleSet = true;
               break;
             }
@@ -693,9 +886,13 @@ class VoiceNotesApp {
 
               if (potentialTitle.length > 3) {
                 const maxLength = 60;
-                this.editorTitle.textContent =
+                const finalTitle =
                   potentialTitle.substring(0, maxLength) +
                   (potentialTitle.length > maxLength ? '...' : '');
+                this.editorTitle.textContent = finalTitle;
+                if (this.currentNote) {
+                  this.currentNote.title = finalTitle;
+                }
                 this.editorTitle.classList.remove('placeholder-active');
                 noteTitleSet = true;
                 break;
@@ -719,7 +916,18 @@ class VoiceNotesApp {
           }
         }
 
-        if (this.currentNote) this.currentNote.polishedNote = polishedText;
+        if (this.currentNote) {
+          this.currentNote.polishedNote = polishedText;
+          const noteInArray = this.notes.find(
+            (n) => n.id === this.currentNote!.id,
+          );
+          if (noteInArray) {
+            noteInArray.polishedNote = this.currentNote.polishedNote;
+            noteInArray.title = this.currentNote.title;
+            this.saveNotes();
+          }
+        }
+
         this.recordingStatus.textContent =
           'Note polished. Ready for next recording.';
       } else {
@@ -787,8 +995,7 @@ class VoiceNotesApp {
 
     const filename = `${sanitizedTitle || 'note'}.md`;
 
-    const blob =
-      new Blob([content], {type: 'text/markdown;charset=utf-8'});
+    const blob = new Blob([content], {type: 'text/markdown;charset=utf-8'});
     const url = URL.createObjectURL(blob);
 
     const link = document.createElement('a');
@@ -803,12 +1010,15 @@ class VoiceNotesApp {
   }
 
   private createNewNote(): void {
-    this.currentNote = {
+    const newNote: Note = {
       id: `note_${Date.now()}`,
+      title: 'Untitled Note',
       rawTranscription: '',
       polishedNote: '',
       timestamp: Date.now(),
     };
+    this.currentNote = newNote;
+    this.notes.unshift(newNote); // Add to the beginning of the array
 
     const rawPlaceholder =
       this.rawTranscription.getAttribute('placeholder') || '';
@@ -826,7 +1036,7 @@ class VoiceNotesApp {
       this.editorTitle.textContent = placeholder;
       this.editorTitle.classList.add('placeholder-active');
     }
-    this.recordingStatus.textContent = 'Ready to record';
+    this.recordingStatus.textContent = 'New note created. Ready to record.';
 
     if (this.isRecording) {
       this.mediaRecorder?.stop();
@@ -835,6 +1045,7 @@ class VoiceNotesApp {
     } else {
       this.stopLiveDisplay();
     }
+    this.saveNotes(); // Save notes and re-render sidebar
   }
 }
 
