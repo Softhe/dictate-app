@@ -152,6 +152,7 @@ body {
   width: 100%;
   max-width: 100%;
   overflow: hidden; /* Ensure app container doesn't scroll */
+  position: relative;
 }
 
 .notes-sidebar {
@@ -179,6 +180,9 @@ body.sidebar-open .notes-sidebar {
   padding: 32px 20px 16px;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .sidebar-header h2 {
@@ -187,10 +191,52 @@ body.sidebar-open .notes-sidebar {
   color: var(--color-text);
 }
 
+.sidebar-close-button {
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 8px;
+  line-height: 1;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.sidebar-close-button:hover {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+}
+
 .notes-list-container {
   flex-grow: 1;
   overflow-y: auto;
   padding: 8px;
+}
+
+.sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.4);
+  z-index: 1050; /* Below sidebar (1100), above main content */
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--transition-slow), visibility var(--transition-slow);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+body.sidebar-open .sidebar-overlay {
+  opacity: 1;
+  visibility: visible;
 }
 
 .empty-notes-message {
@@ -353,6 +399,32 @@ body.light-mode .note-item.active .delete-note-button:hover {
   text-overflow: ellipsis;
 }
 
+.save-status {
+  font-size: 13px;
+  color: var(--color-text-tertiary);
+  margin-left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.save-status.visible {
+  opacity: 1;
+}
+
+.save-status .fa-spinner {
+  animation: fa-spin 1.5s linear infinite;
+}
+
+@keyframes fa-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+
 .tab-navigation-container {
   background: var(--glass-bg);
   backdrop-filter: blur(12px);
@@ -474,6 +546,18 @@ body.light-mode .active-tab-indicator {
 .note-content code { font-family: var(--font-mono); background-color: var(--color-bg-alt); padding: 0.2em 0.4em; border-radius: 4px; font-size: 0.9em;}
 .note-content pre code { background-color: transparent; padding: 0; border-radius: 0;}
 
+.note-content ul li.task-list-item {
+  list-style-type: none;
+  margin-left: -1.5em;
+}
+.note-content ul li.task-list-item input[type="checkbox"] {
+  margin-right: 0.6em;
+  cursor: pointer;
+  transform: scale(1.2);
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
+}
 
 .recording-interface {
   /* Default state: part of the flex flow in main-content */
@@ -571,8 +655,10 @@ body.light-mode .active-tab-indicator {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 24px;
+  gap: 16px;
   position: relative; /* For .record-text positioning */
+  width: 100%;
+  max-width: 480px;
   /* This container is inside .recording-interface.
      If .recording-interface.is-live has padding-bottom: 20px,
      this whole control group will be 20px from the bottom of the fixed panel. */
@@ -591,6 +677,69 @@ body.light-mode .active-tab-indicator {
 /* Action buttons are hidden when recording is live and panel is an overlay */
 .recording-interface.is-live .action-button:not(.sidebar-toggle-button) { display: none; }
 .action-button:hover { color: var(--color-text); transform: translateY(-2px) scale(1.05); box-shadow: var(--shadow-md); background-color: var(--color-surface-hover); border-color: var(--glass-highlight); }
+
+.action-button#voiceCommandButton.active {
+    color: var(--color-accent-alt);
+    background-color: var(--color-surface-active);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent-alt), transparent 75%), var(--shadow-md);
+}
+
+.action-button-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.export-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 50%;
+  transform: translateX(50%);
+  background-color: var(--color-surface);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 1200;
+  width: max-content;
+  opacity: 0;
+  visibility: hidden;
+  transform-origin: bottom center;
+  transform: translateX(50%) scale(0.95) translateY(5px);
+  transition: opacity var(--transition-fast), transform var(--transition-fast),
+    visibility var(--transition-fast);
+}
+
+.export-menu.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(50%) scale(1) translateY(0);
+}
+
+.export-menu-item {
+  background: transparent;
+  border: none;
+  color: var(--color-text);
+  padding: 8px 16px;
+  text-align: left;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font-primary);
+  white-space: nowrap;
+  transition: background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.export-menu-item:hover {
+  background-color: var(--color-surface-hover);
+  color: var(--color-text);
+}
 
 .record-button { position: relative; width: 72px; height: 72px; border-radius: 50%; border: none; outline: none; background: none; cursor: pointer; z-index: 1; }
 .record-button-inner {
@@ -652,4 +801,5 @@ body.light-mode .record-button.recording .record-button-inner { color: white; }
   .live-recording-timer { font-size: 36px; }
   .action-button { width: 44px; height: 44px; font-size: 16px; }
   .record-button { width: 64px; height: 64px; }
+  .recording-controls { gap: 8px; justify-content: space-around; }
 }

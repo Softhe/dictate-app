@@ -25,11 +25,16 @@
       <div class="notes-sidebar" id="notesSidebar">
         <div class="sidebar-header">
           <h2>My Notes</h2>
+          <button class="sidebar-close-button" id="sidebarCloseButton" title="Close Notes">
+            <i class="fas fa-times"></i>
+          </button>
         </div>
         <div class="notes-list-container" id="notesList">
           <!-- Notes will be dynamically inserted here -->
         </div>
       </div>
+      
+      <div id="sidebarOverlay" class="sidebar-overlay"></div>
 
       <div class="main-content">
         <div class="note-area">
@@ -38,9 +43,10 @@
               <button class="action-button sidebar-toggle-button" id="sidebarToggleButton" title="Toggle Notes List">
                 <i class="fas fa-bars"></i>
               </button>
-              <div class="editor-title" contenteditable="true" placeholder="Untitled Note">
-                Untitled Note
+              <div class="editor-title" contenteditable="true" placeholder="Note Title">
+                Note Title
               </div>
+              <div id="saveStatus" class="save-status"></div>
             </div>
             <div class="tab-navigation-container">
               <div class="tab-navigation">
@@ -56,13 +62,13 @@
               id="polishedNote"
               class="note-content active"
               contenteditable="true"
-              placeholder="Your polished notes will appear here..."
+              placeholder="After recording, your beautifully formatted notes will show up here. You can also start typing in Markdown."
             ></div>
             <div
               id="rawTranscription"
               class="note-content"
               contenteditable="true"
-              placeholder="Raw transcription will appear here..."
+              placeholder="The raw, unedited transcription from your recording will be displayed here."
             ></div>
           </div>
         </div>
@@ -84,6 +90,9 @@
             <button class="action-button" id="themeToggleButton" title="Toggle Theme">
               <i class="fas fa-sun"></i>
             </button>
+            <button class="action-button" id="newButton" title="New Note / Clear">
+              <i class="fas fa-file"></i>
+            </button>
 
             <button id="recordButton" class="record-button" title="Start/Stop Recording">
               <div class="record-button-inner">
@@ -96,80 +105,29 @@
               </svg>
               <span class="record-text">Record</span>
             </button>
+            
+            <button class="action-button" id="voiceCommandButton" title="Start Voice Commands">
+              <i class="fas fa-wand-magic-sparkles"></i>
+            </button>
 
-            <button class="action-button" id="newButton" title="New Note / Clear">
-              <i class="fas fa-file"></i>
-            </button>
-            <button class="action-button" id="exportButton" title="Export Note (.md)">
+            <div class="action-button-wrapper">
+              <button class="action-button" id="exportButton" title="Export Note">
                 <i class="fas fa-download"></i>
-            </button>
+              </button>
+              <div class="export-menu" id="exportMenu">
+                <button class="export-menu-item" data-format="default">
+                  As Markdown/HTML
+                </button>
+                <button class="export-menu-item" data-format="txt">
+                  As Plain Text
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
     <div id="micStatus" class="debug-panel"></div>
-
-    <script>
-      document.addEventListener("DOMContentLoaded", () => {
-        const tabNav = document.querySelector(".tab-navigation");
-        const tabButtons = tabNav.querySelectorAll(".tab-button");
-        const activeTabIndicator = tabNav.querySelector(".active-tab-indicator");
-        const noteContents = document.querySelectorAll(".note-content");
-
-        function setActiveTab(activeButton, skipAnimation = false) {
-          if (!activeButton || !activeTabIndicator) return;
-
-          tabButtons.forEach((btn) => btn.classList.remove("active"));
-          activeButton.classList.add("active");
-
-          const tabName = activeButton.getAttribute("data-tab");
-          noteContents.forEach((content) => content.classList.remove("active"));
-
-          if (tabName === "raw") {
-            document.getElementById("rawTranscription").classList.add("active");
-          } else {
-            document.getElementById("polishedNote").classList.add("active");
-          }
-
-          const originalTransition = activeTabIndicator.style.transition;
-          if (skipAnimation) {
-            activeTabIndicator.style.transition = "none";
-          } else {
-            activeTabIndicator.style.transition = "";
-          }
-
-          activeTabIndicator.style.left = `${activeButton.offsetLeft}px`;
-          activeTabIndicator.style.width = `${activeButton.offsetWidth}px`;
-
-          if (skipAnimation) {
-            activeTabIndicator.offsetHeight;
-            activeTabIndicator.style.transition = originalTransition;
-          }
-        }
-
-        tabButtons.forEach((button) => {
-          button.addEventListener("click", (e) => {
-            setActiveTab(e.currentTarget);
-          });
-        });
-
-        const initiallyActiveButton = tabNav.querySelector(".tab-button.active");
-        if (initiallyActiveButton) {
-          requestAnimationFrame(() => {
-            setActiveTab(initiallyActiveButton, true);
-          });
-        }
-
-        window.addEventListener("resize", () => {
-          requestAnimationFrame(() => {
-            const currentActiveButton = tabNav.querySelector(".tab-button.active");
-            if (currentActiveButton) {
-              setActiveTab(currentActiveButton, true);
-            }
-          });
-        });
-      });
-    </script>
   </body>
 </html>

@@ -4,6 +4,46 @@
 */
 /* tslint:disable */
 
+// FIX: Add type definitions for Web Speech API to resolve TypeScript errors.
+interface SpeechRecognitionErrorEvent extends Event {
+  readonly error: string;
+  readonly message: string;
+}
+
+interface SpeechRecognitionEvent extends Event {
+  readonly resultIndex: number;
+  readonly results: SpeechRecognitionResultList;
+}
+
+interface SpeechRecognitionResultList {
+  readonly length: number;
+  item(index: number): SpeechRecognitionResult;
+  [index: number]: SpeechRecognitionResult;
+}
+
+interface SpeechRecognitionResult {
+  readonly isFinal: boolean;
+  readonly length: number;
+  item(index: number): SpeechRecognitionAlternative;
+  [index: number]: SpeechRecognitionAlternative;
+}
+
+interface SpeechRecognitionAlternative {
+  readonly transcript: string;
+  readonly confidence: number;
+}
+
+interface SpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onend: (() => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  start(): void;
+  stop(): void;
+}
+
 import {GoogleGenAI} from '@google/genai';
 import {marked} from 'marked';
 
@@ -27,6 +67,7 @@ class VoiceNotesApp {
   private newButton: HTMLButtonElement;
   private themeToggleButton: HTMLButtonElement;
   private exportButton: HTMLButtonElement;
+  private exportMenu: HTMLDivElement;
   private themeToggleIcon: HTMLElement;
   private audioChunks: Blob[] = [];
   private isRecording = false;
@@ -47,16 +88,37 @@ class VoiceNotesApp {
   private waveformDrawingId: number | null = null;
   private timerIntervalId: number | null = null;
   private recordingStartTime: number = 0;
+  private autoSaveIntervalId: number | null = null;
+  private readonly AUTO_SAVE_INTERVAL = 2000; // 2 seconds
+  private saveStatus: HTMLDivElement;
+  private saveTimeoutId: number | null = null;
 
   // Note persistence properties
   private notes: Note[] = [];
   private sidebar: HTMLElement;
   private notesList: HTMLElement;
   private sidebarToggleButton: HTMLButtonElement;
+  private sidebarCloseButton: HTMLButtonElement;
+  private sidebarOverlay: HTMLDivElement;
   private readonly LOCAL_STORAGE_KEY = 'voice-notes-app-data';
+
+  // Tab navigation properties
+  private tabNav: HTMLElement;
+  private tabButtons: NodeListOf<HTMLButtonElement>;
+  private activeTabIndicator: HTMLDivElement;
+  private noteContents: NodeListOf<HTMLDivElement>;
+
+  // Voice command properties
+  private speechRecognition: SpeechRecognition | null = null;
+  private isListeningForCommands = false;
+  private voiceCommandButton: HTMLButtonElement;
 
   constructor() {
     this.genAI = new GoogleGenAI({apiKey: process.env.API_KEY!});
+    marked.setOptions({
+      gfm: true,
+      breaks: true,
+    });
 
     this.recordButton = document.getElementById(
       'recordButton',
@@ -74,6 +136,7 @@ class VoiceNotesApp {
     this.exportButton = document.getElementById(
       'exportButton',
     ) as HTMLButtonElement;
+    this.exportMenu = document.getElementById('exportMenu') as HTMLDivElement;
     this.themeToggleButton = document.getElementById(
       'themeToggleButton',
     ) as HTMLButtonElement;
@@ -83,11 +146,18 @@ class VoiceNotesApp {
     this.editorTitle = document.querySelector(
       '.editor-title',
     ) as HTMLDivElement;
+    this.saveStatus = document.getElementById('saveStatus') as HTMLDivElement;
     this.sidebar = document.getElementById('notesSidebar') as HTMLElement;
     this.notesList = document.getElementById('notesList') as HTMLElement;
     this.sidebarToggleButton = document.getElementById(
       'sidebarToggleButton',
     ) as HTMLButtonElement;
+    this.sidebarCloseButton = document.getElementById(
+      'sidebarCloseButton',
+    ) as HTMLButtonElement;
+    this.sidebarOverlay = document.getElementById(
+      'sidebarOverlay',
+    ) as HTMLDivElement;
 
     this.recordingInterface = document.querySelector(
       '.recording-interface',
@@ -101,6 +171,21 @@ class VoiceNotesApp {
     this.liveRecordingTimerDisplay = document.getElementById(
       'liveRecordingTimerDisplay',
     ) as HTMLDivElement;
+
+    // Tab elements
+    this.tabNav = document.querySelector('.tab-navigation') as HTMLElement;
+    this.tabButtons = this.tabNav.querySelectorAll('.tab-button');
+    this.activeTabIndicator = this.tabNav.querySelector(
+      '.active-tab-indicator',
+    ) as HTMLDivElement;
+    this.noteContents = document.querySelectorAll(
+      '.note-content',
+    ) as NodeListOf<HTMLDivElement>;
+
+    // Voice command elements
+    this.voiceCommandButton = document.getElementById(
+      'voiceCommandButton',
+    ) as HTMLButtonElement;
 
     if (this.liveWaveformCanvas) {
       this.liveWaveformCtx = this.liveWaveformCanvas.getContext('2d');
@@ -122,28 +207,322 @@ class VoiceNotesApp {
     this.bindEventListeners();
     this.initTheme();
     this.loadNotes();
+    this.initializeSpeechRecognition();
+    this.setupInitialTabState();
+
+    this.autoSaveIntervalId = window.setInterval(
+      () => this.autoSave(),
+      this.AUTO_SAVE_INTERVAL,
+    );
 
     this.recordingStatus.textContent = 'Ready to record';
   }
 
   private bindEventListeners(): void {
+    document.addEventListener('keydown', (e) => this.handleGlobalKeyDown(e));
     this.recordButton.addEventListener('click', () => this.toggleRecording());
     this.newButton.addEventListener('click', () => this.createNewNote());
     this.themeToggleButton.addEventListener('click', () => this.toggleTheme());
-    this.exportButton.addEventListener('click', () => this.exportNote());
+    this.voiceCommandButton.addEventListener('click', () =>
+      this.toggleVoiceCommands(),
+    );
+    this.exportButton.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleExportMenu();
+    });
+    this.exportMenu.addEventListener('click', (e) =>
+      this.handleExportOptionClick(e),
+    );
+    document.addEventListener('click', (e) => {
+      if (
+        this.exportMenu.classList.contains('visible') &&
+        !this.exportButton.contains(e.target as Node) &&
+        !this.exportMenu.contains(e.target as Node)
+      ) {
+        this.exportMenu.classList.remove('visible');
+      }
+    });
+
     window.addEventListener('resize', this.handleResize.bind(this));
     this.sidebarToggleButton.addEventListener('click', () =>
+      this.toggleSidebar(),
+    );
+    this.sidebarCloseButton.addEventListener('click', () =>
+      this.toggleSidebar(),
+    );
+    this.sidebarOverlay.addEventListener('click', () =>
       this.toggleSidebar(),
     );
     this.notesList.addEventListener('click', (e) =>
       this.handleNoteListClick(e),
     );
     this.editorTitle.addEventListener('blur', () => this.handleTitleChange());
+
+    // Add new event listeners for the rich text editor
+    this.polishedNote.addEventListener('paste', (e) =>
+      this.handlePaste(e as ClipboardEvent),
+    );
+    this.polishedNote.addEventListener('keydown', (e) =>
+      this.handleKeyDown(e as KeyboardEvent),
+    );
+    this.polishedNote.addEventListener('change', (e) =>
+      this.handleCheckboxChange(e),
+    );
+
+    this.tabButtons.forEach((button) => {
+      button.addEventListener('click', (e) => {
+        const tabName = (e.currentTarget as HTMLElement).dataset.tab;
+        if (tabName === 'note' || tabName === 'raw') {
+          this.setActiveTab(tabName);
+        }
+      });
+    });
+  }
+
+  private setupInitialTabState(): void {
+    const initiallyActiveButton = this.tabNav.querySelector(
+      '.tab-button.active',
+    );
+    if (initiallyActiveButton) {
+      const tabName = initiallyActiveButton.getAttribute('data-tab');
+      if (tabName === 'note' || tabName === 'raw') {
+        requestAnimationFrame(() => {
+          this.setActiveTab(tabName, true);
+        });
+      }
+    }
+  }
+
+  public setActiveTab(tabName: 'note' | 'raw', skipAnimation = false): void {
+    const activeButton = this.tabNav.querySelector(
+      `[data-tab="${tabName}"]`,
+    ) as HTMLButtonElement;
+    if (!activeButton || !this.activeTabIndicator) return;
+
+    this.tabButtons.forEach((btn) => btn.classList.remove('active'));
+    activeButton.classList.add('active');
+
+    this.noteContents.forEach((content) => content.classList.remove('active'));
+
+    if (tabName === 'raw') {
+      document.getElementById('rawTranscription')?.classList.add('active');
+    } else {
+      document.getElementById('polishedNote')?.classList.add('active');
+    }
+
+    const originalTransition = this.activeTabIndicator.style.transition;
+    if (skipAnimation) {
+      this.activeTabIndicator.style.transition = 'none';
+    } else {
+      this.activeTabIndicator.style.transition = '';
+    }
+
+    this.activeTabIndicator.style.left = `${activeButton.offsetLeft}px`;
+    this.activeTabIndicator.style.width = `${activeButton.offsetWidth}px`;
+
+    if (skipAnimation) {
+      // This is a trick to flush CSS changes before re-enabling transitions
+      this.activeTabIndicator.offsetHeight;
+      this.activeTabIndicator.style.transition = originalTransition;
+    }
+  }
+
+  private initializeSpeechRecognition(): void {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.warn('Speech Recognition not supported by this browser.');
+      this.voiceCommandButton.style.display = 'none';
+      return;
+    }
+
+    this.speechRecognition = new SpeechRecognition();
+    this.speechRecognition.continuous = true;
+    this.speechRecognition.interimResults = true;
+    this.speechRecognition.lang = 'en-US';
+
+    this.speechRecognition.onresult = this.handleSpeechResult.bind(this);
+    this.speechRecognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      console.error('Speech recognition error', event.error);
+      this.isListeningForCommands = false;
+      this.updateVoiceCommandUI();
+    };
+    this.speechRecognition.onend = () => {
+      // If it ends and we still want it to be listening, restart it.
+      if (this.isListeningForCommands) {
+        this.speechRecognition?.start();
+      }
+    };
+  }
+
+  private toggleVoiceCommands(): void {
+    if (!this.speechRecognition) return;
+    this.isListeningForCommands = !this.isListeningForCommands;
+    if (this.isListeningForCommands) {
+      this.speechRecognition.start();
+    } else {
+      this.speechRecognition.stop();
+    }
+    this.updateVoiceCommandUI();
+  }
+
+  private updateVoiceCommandUI(): void {
+    this.voiceCommandButton.classList.toggle(
+      'active',
+      this.isListeningForCommands,
+    );
+    if (this.isListeningForCommands) {
+      this.voiceCommandButton.setAttribute('title', 'Stop Voice Commands');
+    } else {
+      this.voiceCommandButton.setAttribute('title', 'Start Voice Commands');
+    }
+  }
+
+  private handleSpeechResult(event: SpeechRecognitionEvent): void {
+    let finalTranscript = '';
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
+      if (event.results[i].isFinal) {
+        finalTranscript += event.results[i][0].transcript;
+      }
+    }
+
+    finalTranscript = finalTranscript.toLowerCase().trim();
+    if (!finalTranscript) return;
+
+    console.log(`Voice Command: ${finalTranscript}`);
+
+    if (
+      finalTranscript.includes('start recording') ||
+      finalTranscript.includes('begin recording')
+    ) {
+      if (!this.isRecording) this.startRecording();
+    } else if (
+      finalTranscript.includes('stop recording') ||
+      finalTranscript.includes('end recording')
+    ) {
+      if (this.isRecording) this.stopRecording();
+    } else if (
+      finalTranscript.includes('new note') ||
+      finalTranscript.includes('create new note')
+    ) {
+      this.createNewNote();
+    } else if (
+      finalTranscript.includes('show polished') ||
+      finalTranscript.includes('polished view')
+    ) {
+      this.setActiveTab('note');
+    } else if (
+      finalTranscript.includes('show raw') ||
+      finalTranscript.includes('raw view')
+    ) {
+      this.setActiveTab('raw');
+    } else if (finalTranscript.includes('new row')) {
+      this.insertNewRow();
+    }
+  }
+
+  private insertNewRow(): void {
+    const activeEditor = document.activeElement;
+    if (
+      activeEditor &&
+      (activeEditor.id === 'rawTranscription' ||
+        activeEditor.id === 'polishedNote')
+    ) {
+      (activeEditor as HTMLElement).focus();
+      document.execCommand('insertText', false, '.\n');
+    } else {
+      // Default to raw transcription if no editor is focused
+      this.rawTranscription.focus();
+      document.execCommand('insertText', false, '.\n');
+    }
+  }
+
+  private handleGlobalKeyDown(event: KeyboardEvent): void {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
+      event.preventDefault();
+      this.createNewNote();
+    }
+  }
+
+  private handleKeyDown(event: KeyboardEvent): void {
+    // Use metaKey for MacOS (Command key) and ctrlKey for Windows/Linux
+    if (event.metaKey || event.ctrlKey) {
+      switch (event.key.toLowerCase()) {
+        case 'b':
+          event.preventDefault();
+          document.execCommand('bold');
+          break;
+        case 'i':
+          event.preventDefault();
+          document.execCommand('italic');
+          break;
+        // Using Shift + L for unordered list
+        case 'l':
+          if (event.shiftKey) {
+            event.preventDefault();
+            document.execCommand('insertUnorderedList');
+          }
+          break;
+      }
+    }
+  }
+
+  private handleCheckboxChange(event: Event): void {
+    const checkbox = event.target as HTMLInputElement;
+    if (!checkbox || checkbox.type !== 'checkbox' || !this.currentNote) return;
+
+    const allCheckboxes = Array.from(
+      this.polishedNote.querySelectorAll('input[type="checkbox"]'),
+    );
+    const checkboxIndex = allCheckboxes.indexOf(checkbox);
+
+    if (checkboxIndex === -1) return;
+
+    const markdown = this.currentNote.polishedNote;
+    let count = -1;
+    const newMarkdown = markdown.replace(/(- \[[ x]\])/g, (match) => {
+      count++;
+      if (count === checkboxIndex) {
+        return checkbox.checked ? '- [x]' : '- [ ]';
+      }
+      return match;
+    });
+
+    if (this.currentNote.polishedNote !== newMarkdown) {
+      this.currentNote.polishedNote = newMarkdown;
+      // Manually trigger a save since auto-save interval might miss it
+      this.autoSave();
+    }
+  }
+
+  private handlePaste(event: ClipboardEvent): void {
+    event.preventDefault();
+    const clipboardData = event.clipboardData;
+    if (!clipboardData) return;
+
+    let pastedData: string;
+
+    if (clipboardData.types.includes('text/html')) {
+      pastedData = clipboardData.getData('text/html');
+      // NOTE: This is a basic sanitization. For a production application,
+      // a more robust HTML sanitizer library (like DOMPurify) is recommended
+      // to prevent XSS attacks.
+      const sanitizedHtml = pastedData
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') // remove script tags
+        .replace(/ style="[^"]*"/gi, ''); // remove inline styles
+      document.execCommand('insertHTML', false, sanitizedHtml);
+    } else if (clipboardData.types.includes('text/plain')) {
+      pastedData = clipboardData.getData('text/plain');
+      // To preserve line breaks, convert newlines to <br> tags.
+      const htmlText = pastedData.replace(/(\r\n|\n|\r)/gm, '<br>');
+      document.execCommand('insertHTML', false, htmlText);
+    }
   }
 
   private handleTitleChange(): void {
     if (!this.currentNote) return;
-    const newTitle = this.editorTitle.textContent?.trim() || 'Untitled Note';
+    const newTitle = this.editorTitle.textContent?.trim() || 'Note Title';
     if (this.currentNote.title !== newTitle) {
       this.currentNote.title = newTitle;
       const noteInArray = this.notes.find((n) => n.id === this.currentNote!.id);
@@ -182,6 +561,81 @@ class VoiceNotesApp {
     this.notes.sort((a, b) => b.timestamp - a.timestamp);
     localStorage.setItem(this.LOCAL_STORAGE_KEY, JSON.stringify(this.notes));
     this.renderSidebar();
+  }
+
+  private showSavingIndicator(): void {
+    if (this.saveTimeoutId) {
+      clearTimeout(this.saveTimeoutId);
+      this.saveTimeoutId = null;
+    }
+    this.saveStatus.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Saving...`;
+    this.saveStatus.classList.add('visible');
+  }
+
+  private showSavedIndicator(): void {
+    if (this.saveTimeoutId) clearTimeout(this.saveTimeoutId);
+    this.saveStatus.innerHTML = `<i class="fas fa-check"></i> Saved`;
+    this.saveStatus.classList.add('visible');
+    this.saveTimeoutId = window.setTimeout(() => {
+      this.saveStatus.classList.remove('visible');
+    }, 2000);
+  }
+
+  private autoSave(): void {
+    if (!this.currentNote) {
+      return;
+    }
+
+    let changed = false;
+
+    // Check title
+    const titleIsPlaceholder =
+      this.editorTitle.classList.contains('placeholder-active');
+    const newTitle = titleIsPlaceholder
+      ? 'Note Title'
+      : this.editorTitle.textContent?.trim() || 'Note Title';
+    if (this.currentNote.title !== newTitle) {
+      this.currentNote.title = newTitle;
+      changed = true;
+    }
+
+    // Check raw transcription
+    const rawIsPlaceholder =
+      this.rawTranscription.classList.contains('placeholder-active');
+    const newRawTranscription = rawIsPlaceholder
+      ? ''
+      : this.rawTranscription.textContent || '';
+    if (this.currentNote.rawTranscription !== newRawTranscription) {
+      this.currentNote.rawTranscription = newRawTranscription;
+      changed = true;
+    }
+
+    // Check polished note
+    const polishedIsPlaceholder =
+      this.polishedNote.classList.contains('placeholder-active');
+    const newPolishedNote = polishedIsPlaceholder
+      ? ''
+      : this.polishedNote.innerHTML;
+    if (this.currentNote.polishedNote !== newPolishedNote) {
+      this.currentNote.polishedNote = newPolishedNote;
+      changed = true;
+    }
+
+    if (changed) {
+      this.showSavingIndicator();
+      const noteInArray = this.notes.find((n) => n.id === this.currentNote!.id);
+      if (noteInArray) {
+        noteInArray.title = this.currentNote.title;
+        noteInArray.rawTranscription = this.currentNote.rawTranscription;
+        noteInArray.polishedNote = this.currentNote.polishedNote;
+        noteInArray.timestamp = Date.now(); // Update timestamp on edit
+        this.saveNotes();
+        this.showSavedIndicator();
+      } else {
+        if (this.saveTimeoutId) clearTimeout(this.saveTimeoutId);
+        this.saveStatus.classList.remove('visible');
+      }
+    }
   }
 
   // FIX: Make method async to handle async call to loadNote
@@ -224,7 +678,7 @@ class VoiceNotesApp {
         noteEl.classList.add('active');
       }
 
-      const title = note.title || 'Untitled Note';
+      const title = note.title || 'Note Title';
       const date = new Date(note.timestamp).toLocaleString(undefined, {
         dateStyle: 'medium',
         timeStyle: 'short',
@@ -258,7 +712,7 @@ class VoiceNotesApp {
     this.editorTitle.textContent = this.currentNote.title;
     this.editorTitle.classList.toggle(
       'placeholder-active',
-      !this.currentNote.title || this.currentNote.title === 'Untitled Note',
+      !this.currentNote.title || this.currentNote.title === 'Note Title',
     );
 
     if (this.currentNote.rawTranscription) {
@@ -271,8 +725,16 @@ class VoiceNotesApp {
     }
 
     if (this.currentNote.polishedNote) {
-      // FIX: Await marked.parse as it can be async and return a Promise.
-      this.polishedNote.innerHTML = await marked.parse(this.currentNote.polishedNote);
+      const noteContent = this.currentNote.polishedNote;
+      // If content seems to be HTML, render directly. Otherwise, parse as Markdown.
+      if (noteContent.trim().startsWith('<')) {
+        this.polishedNote.innerHTML = noteContent;
+      } else {
+        // FIX: Await marked.parse as it can be async and return a Promise.
+        let htmlContent = await marked.parse(noteContent);
+        htmlContent = htmlContent.replace(/ disabled=""/g, '');
+        this.polishedNote.innerHTML = htmlContent;
+      }
       this.polishedNote.classList.remove('placeholder-active');
     } else {
       this.polishedNote.innerHTML =
@@ -314,6 +776,14 @@ class VoiceNotesApp {
       requestAnimationFrame(() => {
         this.setupCanvasDimensions();
       });
+    }
+
+    const currentActiveButton = this.tabNav.querySelector('.tab-button.active');
+    if (currentActiveButton) {
+      const tabName = currentActiveButton.getAttribute('data-tab');
+      if (tabName === 'note' || tabName === 'raw') {
+        this.setActiveTab(tabName, true);
+      }
     }
   }
 
@@ -495,7 +965,7 @@ class VoiceNotesApp {
 
     const currentTitle = this.editorTitle.textContent?.trim();
     const placeholder =
-      this.editorTitle.getAttribute('placeholder') || 'Untitled Note';
+      this.editorTitle.getAttribute('placeholder') || 'Note Title';
     this.liveRecordingTitle.textContent =
       currentTitle && currentTitle !== placeholder
         ? currentTitle
@@ -747,7 +1217,7 @@ class VoiceNotesApp {
 
       const contents = [
         {
-          text: 'Transcribe the audio, focusing only on spoken words. Omit any non-speech sounds, background noises, or descriptive sounds often enclosed in parentheses, such as (Sigh) or (Humming sound). Provide a clean, verbatim transcript of the speech.',
+          text: 'You are an expert transcriptionist specializing in technical topics like programming, computer science, and the Internet of Things (IoT). Transcribe the provided audio with high accuracy, paying close attention to technical jargon, acronyms (like API, JSON, HTTP, MQTT), and code-related terms. Focus only on spoken words. Omit any non-speech sounds, background noises, or descriptive sounds often enclosed in parentheses, such as (Sigh) or (Humming sound). Provide a clean, verbatim transcript of the speech.',
         },
         {inlineData: {mimeType: mimeType, data: base64Audio}},
       ];
@@ -827,13 +1297,15 @@ class VoiceNotesApp {
 
       this.recordingStatus.textContent = 'Polishing note...';
 
-      const prompt = `Take this raw transcription and create a polished, well-formatted note.
-                    Remove filler words (um, uh, like), repetitions, and false starts.
-                    Format any lists or bullet points properly. Use markdown formatting for headings, lists, etc.
-                    Maintain all the original content and meaning.
+      const prompt = `You are an expert technical writer. Take this raw transcription about a technical subject (like programming, computers, or IoT) and create a polished, well-formatted note. Your tasks are:
+1.  Correct any potential transcription errors, especially for technical terms and acronyms.
+2.  Remove filler words (um, uh, like), repetitions, and false starts.
+3.  Structure the content logically using Markdown. Use headings, lists, bold text, and code blocks (\`\`\`) where appropriate.
+4.  Ensure all original content and meaning are preserved.
+5.  If there is a clear main topic, create a suitable title using a level 1 Markdown heading (e.g., # My Note Title).
 
-                    Raw transcription:
-                    ${this.rawTranscription.textContent}`;
+Raw transcription:
+${this.rawTranscription.textContent}`;
       const contents = [{text: prompt}];
 
       const response = await this.genAI.models.generateContent({
@@ -845,7 +1317,8 @@ class VoiceNotesApp {
 
       if (polishedText) {
         // FIX: Await marked.parse as it can be async and return a Promise.
-        const htmlContent = await marked.parse(polishedText);
+        let htmlContent = await marked.parse(polishedText);
+        htmlContent = htmlContent.replace(/ disabled=""/g, '');
         this.polishedNote.innerHTML = htmlContent;
         if (polishedText.trim() !== '') {
           this.polishedNote.classList.remove('placeholder-active');
@@ -904,7 +1377,7 @@ class VoiceNotesApp {
         if (!noteTitleSet && this.editorTitle) {
           const currentEditorText = this.editorTitle.textContent?.trim();
           const placeholderText =
-            this.editorTitle.getAttribute('placeholder') || 'Untitled Note';
+            this.editorTitle.getAttribute('placeholder') || 'Note Title';
           if (
             currentEditorText === '' ||
             currentEditorText === placeholderText
@@ -963,7 +1436,48 @@ class VoiceNotesApp {
     }
   }
 
-  private exportNote(): void {
+  private toggleExportMenu(): void {
+    this.exportMenu.classList.toggle('visible');
+  }
+
+  private async handleExportOptionClick(event: MouseEvent): Promise<void> {
+    const target = event.target as HTMLButtonElement;
+    if (target.matches('.export-menu-item')) {
+      const format = target.dataset.format;
+      if (format) {
+        await this.exportNote(format as 'default' | 'txt');
+        this.exportMenu.classList.remove('visible');
+      }
+    }
+  }
+
+  private stripHtml(html: string): string {
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+
+    // Add newlines after block elements to preserve structure
+    tempDiv
+      .querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, pre, blockquote, div')
+      .forEach((el) => {
+        el.insertAdjacentText('afterend', '\n');
+      });
+
+    // Add list markers for list items
+    tempDiv.querySelectorAll('li').forEach((li) => {
+      li.insertAdjacentText('beforebegin', '* ');
+    });
+
+    let text = tempDiv.textContent || tempDiv.innerText || '';
+
+    // Clean up excessive newlines
+    text = text.replace(/(\n\s*){3,}/g, '\n\n').trim();
+
+    return text;
+  }
+
+  private async exportNote(
+    format: 'default' | 'txt' = 'default',
+  ): Promise<void> {
     if (
       !this.currentNote ||
       !this.currentNote.polishedNote ||
@@ -972,11 +1486,9 @@ class VoiceNotesApp {
       return;
     }
 
-    const content = this.currentNote.polishedNote;
-
     let title = this.editorTitle.textContent?.trim() || '';
     const placeholder =
-      this.editorTitle.getAttribute('placeholder') || 'Untitled Note';
+      this.editorTitle.getAttribute('placeholder') || 'Note Title';
     if (!title || title === placeholder) {
       const now = new Date();
       title = `note-${now.toISOString().slice(0, 16).replace('T', '-')}`.replace(
@@ -993,9 +1505,28 @@ class VoiceNotesApp {
       .replace(/^-+/, '') // Trim - from start of text
       .replace(/-+$/, ''); // Trim - from end of text
 
-    const filename = `${sanitizedTitle || 'note'}.md`;
+    let content: string;
+    let filename: string;
+    let mimeType: string;
 
-    const blob = new Blob([content], {type: 'text/markdown;charset=utf-8'});
+    if (format === 'txt') {
+      const htmlContent = await marked.parse(this.currentNote.polishedNote);
+      content = this.stripHtml(htmlContent);
+      filename = `${sanitizedTitle || 'note'}.txt`;
+      mimeType = 'text/plain;charset=utf-8';
+    } else {
+      // 'default'
+      content = this.currentNote.polishedNote;
+      const isHtml = content.trim().startsWith('<');
+      filename = `${sanitizedTitle || 'note'}.${isHtml ? 'html' : 'md'}`;
+      mimeType = isHtml
+        ? 'text/html;charset=utf-8'
+        : 'text/markdown;charset=utf-8';
+    }
+
+    const blob = new Blob([content], {
+      type: mimeType,
+    });
     const url = URL.createObjectURL(blob);
 
     const link = document.createElement('a');
@@ -1012,7 +1543,7 @@ class VoiceNotesApp {
   private createNewNote(): void {
     const newNote: Note = {
       id: `note_${Date.now()}`,
-      title: 'Untitled Note',
+      title: 'Note Title',
       rawTranscription: '',
       polishedNote: '',
       timestamp: Date.now(),
@@ -1032,7 +1563,7 @@ class VoiceNotesApp {
 
     if (this.editorTitle) {
       const placeholder =
-        this.editorTitle.getAttribute('placeholder') || 'Untitled Note';
+        this.editorTitle.getAttribute('placeholder') || 'Note Title';
       this.editorTitle.textContent = placeholder;
       this.editorTitle.classList.add('placeholder-active');
     }
