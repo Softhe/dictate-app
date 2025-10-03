@@ -505,6 +505,57 @@ body.light-mode .active-tab-indicator {
   min-height: 0;
 }
 
+.formatting-toolbar {
+  position: absolute;
+  z-index: 100;
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  padding: 4px;
+  display: flex;
+  gap: 4px;
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(0.9) translateY(10px);
+  transition: opacity var(--transition-fast), transform var(--transition-fast), visibility var(--transition-fast);
+  transform-origin: top center;
+  will-change: opacity, transform, top, left;
+}
+
+.formatting-toolbar.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: scale(1) translateY(0);
+}
+
+.formatting-toolbar button {
+  background: transparent;
+  border: none;
+  width: 36px;
+  height: 36px;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.formatting-toolbar button:hover {
+  color: var(--color-text);
+  background-color: var(--color-surface-hover);
+}
+
+.formatting-toolbar button.active {
+   color: var(--color-accent);
+   background-color: var(--color-surface-active);
+}
+
 .note-content {
   outline: none;
   min-height: 100px;

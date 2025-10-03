@@ -107,6 +107,10 @@ class VoiceNotesApp {
   private tabButtons: NodeListOf<HTMLButtonElement>;
   private activeTabIndicator: HTMLDivElement;
   private noteContents: NodeListOf<HTMLDivElement>;
+  private noteContentWrapper: HTMLDivElement;
+
+  // Formatting toolbar
+  private formattingToolbar: HTMLDivElement;
 
   // Voice command properties
   private speechRecognition: SpeechRecognition | null = null;
@@ -181,6 +185,14 @@ class VoiceNotesApp {
     this.noteContents = document.querySelectorAll(
       '.note-content',
     ) as NodeListOf<HTMLDivElement>;
+    this.noteContentWrapper = document.querySelector(
+      '.note-content-wrapper',
+    ) as HTMLDivElement;
+
+    // Formatting toolbar
+    this.formattingToolbar = document.getElementById(
+      'formattingToolbar',
+    ) as HTMLDivElement;
 
     // Voice command elements
     this.voiceCommandButton = document.getElementById(
@@ -268,6 +280,21 @@ class VoiceNotesApp {
     this.polishedNote.addEventListener('change', (e) =>
       this.handleCheckboxChange(e),
     );
+    this.polishedNote.addEventListener('blur', () =>
+      this.hideFormattingToolbar(),
+    );
+    document.addEventListener('selectionchange', () =>
+      this.handleSelectionChange(),
+    );
+    this.formattingToolbar.addEventListener('mousedown', (e) =>
+      e.preventDefault(),
+    );
+    this.formattingToolbar.addEventListener('click', (e) =>
+      this.handleToolbarClick(e),
+    );
+    this.noteContentWrapper.addEventListener('scroll', () =>
+      this.hideFormattingToolbar(),
+    );
 
     this.tabButtons.forEach((button) => {
       button.addEventListener('click', (e) => {
@@ -276,6 +303,104 @@ class VoiceNotesApp {
           this.setActiveTab(tabName);
         }
       });
+    });
+  }
+
+  private handleSelectionChange(): void {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      this.hideFormattingToolbar();
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    // Check if selection is inside our polishedNote editor
+    if (!this.polishedNote.contains(range.commonAncestorContainer)) {
+      this.hideFormattingToolbar();
+      return;
+    }
+
+    if (selection.isCollapsed) {
+      this.hideFormattingToolbar();
+      return;
+    }
+
+    this.showFormattingToolbar(selection);
+  }
+
+  private showFormattingToolbar(selection: Selection): void {
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    const containerRect = this.noteContentWrapper.getBoundingClientRect();
+
+    if (rect.width === 0 && rect.height === 0) {
+      this.hideFormattingToolbar();
+      return;
+    }
+
+    // Position the toolbar above the selection
+    let top =
+      rect.top -
+      containerRect.top +
+      this.noteContentWrapper.scrollTop -
+      this.formattingToolbar.offsetHeight -
+      8;
+    let left =
+      rect.left -
+      containerRect.left +
+      this.noteContentWrapper.scrollLeft +
+      rect.width / 2 -
+      this.formattingToolbar.offsetWidth / 2;
+
+    // Ensure toolbar doesn't go off the top
+    if (top < this.noteContentWrapper.scrollTop) {
+      top =
+        rect.bottom - containerRect.top + this.noteContentWrapper.scrollTop + 8;
+    }
+
+    // Ensure toolbar doesn't go off the sides
+    const minLeft = this.noteContentWrapper.scrollLeft + 4;
+    const maxLeft =
+      this.noteContentWrapper.scrollLeft +
+      containerRect.width -
+      this.formattingToolbar.offsetWidth -
+      4;
+    left = Math.max(minLeft, Math.min(left, maxLeft));
+
+    this.formattingToolbar.style.top = `${top}px`;
+    this.formattingToolbar.style.left = `${left}px`;
+    this.formattingToolbar.classList.add('visible');
+
+    this.updateToolbarState();
+  }
+
+  private hideFormattingToolbar(): void {
+    if (this.formattingToolbar.classList.contains('visible')) {
+      this.formattingToolbar.classList.remove('visible');
+    }
+  }
+
+  private handleToolbarClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement;
+    const button = target.closest('button');
+    if (!button) return;
+
+    const command = button.dataset.command;
+    if (command) {
+      document.execCommand(command, false, undefined);
+      this.polishedNote.focus(); // Re-focus the editor
+      this.updateToolbarState(); // Update active states after command
+    }
+  }
+
+  private updateToolbarState(): void {
+    ['bold', 'italic', 'insertUnorderedList'].forEach((command) => {
+      const button = this.formattingToolbar.querySelector(
+        `[data-command="${command}"]`,
+      );
+      if (button) {
+        button.classList.toggle('active', document.queryCommandState(command));
+      }
     });
   }
 
