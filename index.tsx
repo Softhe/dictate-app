@@ -101,6 +101,7 @@ class VoiceNotesApp {
   private sidebarCloseButton: HTMLButtonElement;
   private sidebarOverlay: HTMLDivElement;
   private readonly LOCAL_STORAGE_KEY = 'voice-notes-app-data';
+  private mainContent: HTMLElement;
 
   // Tab navigation properties
   private tabNav: HTMLElement;
@@ -162,6 +163,9 @@ class VoiceNotesApp {
     this.sidebarOverlay = document.getElementById(
       'sidebarOverlay',
     ) as HTMLDivElement;
+    this.mainContent = document.querySelector(
+      '.main-content',
+    ) as HTMLElement;
 
     this.recordingInterface = document.querySelector(
       '.recording-interface',
@@ -1072,6 +1076,7 @@ class VoiceNotesApp {
     }
 
     this.recordingInterface.classList.add('is-live');
+    this.mainContent.classList.add('recording-live');
     this.liveRecordingTitle.style.display = 'block';
     this.liveWaveformCanvas.style.display = 'block';
     this.liveRecordingTimerDisplay.style.display = 'block';
@@ -1112,11 +1117,14 @@ class VoiceNotesApp {
       !this.liveWaveformCanvas ||
       !this.liveRecordingTimerDisplay
     ) {
-      if (this.recordingInterface)
+      if (this.recordingInterface) {
         this.recordingInterface.classList.remove('is-live');
+        this.mainContent.classList.remove('recording-live');
+      }
       return;
     }
     this.recordingInterface.classList.remove('is-live');
+    this.mainContent.classList.remove('recording-live');
     this.liveRecordingTitle.style.display = 'none';
     this.liveWaveformCanvas.style.display = 'none';
     this.liveRecordingTimerDisplay.style.display = 'none';

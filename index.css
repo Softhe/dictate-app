@@ -346,7 +346,7 @@ body.light-mode .note-item.active .delete-note-button:hover {
 }
 
 /* When .is-live is a direct child of .main-content, add padding to .main-content */
-.main-content:has(> .recording-interface.is-live) {
+.main-content.recording-live {
   padding-bottom: var(--live-footer-height);
 }
 
@@ -576,7 +576,7 @@ body.light-mode .active-tab-indicator {
 
 .note-content:focus, .note-content:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent), transparent 75%);
+  box-shadow: 0 0 0 3px rgba(130, 170, 255, 0.25);
   background-color: var(--color-surface);
 }
 
@@ -732,7 +732,7 @@ body.light-mode .active-tab-indicator {
 .action-button#voiceCommandButton.active {
     color: var(--color-accent-alt);
     background-color: var(--color-surface-active);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent-alt), transparent 75%), var(--shadow-md);
+    box-shadow: 0 0 0 3px rgba(199, 146, 234, 0.25), var(--shadow-md);
 }
 
 .action-button-wrapper {
